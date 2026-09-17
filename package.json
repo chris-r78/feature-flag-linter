@@ -1,0 +1,16 @@
+{
+  "name": "feature-flag-linter",
+  "version": "0.1.0",
+  "description": "Lints feature flag usage in code against a flags manifest and reports findings with line numbers",
+  "type": "module",
+  "bin": {
+    "feature-flag-linter": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
