@@ -28,4 +28,12 @@ export interface Finding {
 export interface LintOptions {
   targets: string[];
   manifestPath: string;
+  configPath?: string;
+}
+
+export interface LinterConfig {
+  // Additional function names (beyond the built-in ones) whose first string
+  // argument should be treated as a flag reference, e.g. wrappers like
+  // `myCompanyFlag(...)` around the real flag-check call.
+  flagFunctions?: string[];
 }

@@ -2,10 +2,13 @@
 import { lint } from './lint.js';
 import type { Finding } from './types.js';
 
-const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--json]
+const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--config <file>] [--json]
 
   paths          files or directories to scan (default: .)
   --manifest     path to the flags manifest (default: feature-flags.json)
+  --config       path to a linter config file (default: .feature-flag-linter.json,
+                 silently skipped if it doesn't exist; an explicitly passed path
+                 must exist)
   --json         emit findings as JSON instead of human-readable text
   --help         show this message
 `;
@@ -13,12 +16,14 @@ const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--json
 interface ParsedArgs {
   targets: string[];
   manifestPath: string;
+  configPath?: string;
   jsonOutput: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
   const targets: string[] = [];
   let manifestPath = 'feature-flags.json';
+  let configPath: string | undefined;
   let jsonOutput = false;
 
   for (let i = 0; i < argv.length; i++) {
@@ -30,6 +35,11 @@ function parseArgs(argv: string[]): ParsedArgs {
       const value = argv[i];
       if (!value) throw new Error('--manifest requires a path argument');
       manifestPath = value;
+    } else if (arg === '--config') {
+      i += 1;
+      const value = argv[i];
+      if (!value) throw new Error('--config requires a path argument');
+      configPath = value;
     } else if (arg === '--help' || arg === '-h') {
       process.stdout.write(USAGE);
       process.exit(0);
@@ -39,7 +49,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (targets.length === 0) targets.push('.');
-  return { targets, manifestPath, jsonOutput };
+  return { targets, manifestPath, configPath, jsonOutput };
 }
 
 function printHuman(findings: Finding[]): void {
@@ -72,7 +82,7 @@ function main(): void {
 
   let findings: Finding[];
   try {
-    findings = lint({ targets: args.targets, manifestPath: args.manifestPath });
+    findings = lint({ targets: args.targets, manifestPath: args.manifestPath, configPath: args.configPath });
   } catch (err) {
     process.stderr.write(`feature-flag-linter: ${(err as Error).message}\n`);
     process.exit(2);

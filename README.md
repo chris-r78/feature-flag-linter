@@ -45,7 +45,26 @@ and cross-references the names it finds against the manifest.
 
 This is a regex-based scan over source text, not a full parser. It will miss
 flag names built from variables or template strings, and it only recognizes
-the call names listed above. See the roadmap below for where this is headed.
+the call names listed above by default. See the roadmap below for where this
+is headed.
+
+### Custom flag-check function names
+
+If your codebase wraps the flag check in its own helper - say
+`myTeamFlag('some-flag')` - list it in a config file so the linter picks it up
+too. By default it looks for `.feature-flag-linter.json` next to where you run
+it; pass `--config <file>` to use a different path.
+
+```json
+{
+  "flagFunctions": ["myTeamFlag", "legacyFlagCheck"]
+}
+```
+
+These names are added to the built-in list (`isEnabled`, `isFeatureEnabled`,
+`useFeatureFlag`, `useFlag`, `flagEnabled`); they don't replace it. If the
+default config file doesn't exist, the linter just uses the built-in list and
+moves on. If you pass `--config` explicitly, that file must exist.
 
 ## Usage
 
@@ -100,6 +119,7 @@ Other flags:
 
 ```
 node dist/cli.js --manifest config/flags.json src/ tools/
+node dist/cli.js --config tools/flag-linter.json src/
 node dist/cli.js --help
 ```
 
@@ -110,11 +130,13 @@ standard library.
 
 ## Roadmap
 
-- Parse source with the TypeScript compiler API instead of regex, to catch
-  flag names built from constants and to stop matching false positives inside
-  comments and strings
-- Support a config file for custom flag-check function names
 - Detect flags referenced with dynamic/computed names and report them as a
   separate "cannot verify" category instead of silently skipping them
 - Add a `--fix` mode that removes manifest entries for confirmed unused flags
 - Publish as an npm package with a proper CLI entry point
+
+Switching the scan to the TypeScript compiler API is off the table for now:
+the `typescript` package would be a runtime dependency, and this stays
+zero-dependency. A hand-rolled tokenizer could get the same "ignore comments
+and strings" benefit without that, but that's a bigger job than the regex
+approach has earned yet.

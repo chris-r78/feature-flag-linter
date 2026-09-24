@@ -1,14 +1,60 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import type { Finding, FlagDefinition, FlagReference, LintOptions, Manifest } from './types.js';
+import type { Finding, FlagDefinition, FlagReference, LinterConfig, LintOptions, Manifest } from './types.js';
 
 const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
 
+const DEFAULT_FLAG_FUNCTIONS = ['isEnabled', 'isFeatureEnabled', 'useFeatureFlag', 'useFlag', 'flagEnabled'];
+const DEFAULT_CONFIG_PATH = '.feature-flag-linter.json';
+
+const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
 // Heuristic, not AST-based: catches the common flag-check call shapes without
 // needing a parser for every dialect of JS/TS a codebase might use.
-const FLAG_CALL_PATTERN =
-  /\b(?:isEnabled|isFeatureEnabled|useFeatureFlag|useFlag|flagEnabled)\s*\(\s*['"]([a-zA-Z0-9_.-]+)['"]/g;
+function buildFlagCallPattern(functionNames: string[]): RegExp {
+  const alternation = functionNames.join('|');
+  return new RegExp(`\\b(?:${alternation})\\s*\\(\\s*['"]([a-zA-Z0-9_.-]+)['"]`, 'g');
+}
+
+export function loadConfig(configPath: string, isDefaultPath: boolean): LinterConfig {
+  if (isDefaultPath && !existsSync(configPath)) {
+    return {};
+  }
+
+  let raw: string;
+  try {
+    raw = readFileSync(configPath, 'utf8');
+  } catch {
+    throw new Error(`could not read config file: ${configPath}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`config is not valid JSON: ${configPath}`);
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`config must be a JSON object: ${configPath}`);
+  }
+
+  const { flagFunctions } = parsed as { flagFunctions?: unknown };
+  if (flagFunctions === undefined) {
+    return {};
+  }
+  if (!Array.isArray(flagFunctions) || !flagFunctions.every((name) => typeof name === 'string')) {
+    throw new Error(`config "flagFunctions" must be an array of strings: ${configPath}`);
+  }
+  for (const name of flagFunctions) {
+    if (!IDENTIFIER_PATTERN.test(name)) {
+      throw new Error(`config "flagFunctions" entry is not a valid function name: ${name}`);
+    }
+  }
+
+  return { flagFunctions };
+}
 
 function* walkFiles(root: string): Generator<string> {
   let entries;
@@ -36,14 +82,14 @@ function collectTargetFiles(target: string): string[] {
   return [target];
 }
 
-function scanFileForFlags(filePath: string): FlagReference[] {
+function scanFileForFlags(filePath: string, pattern: RegExp): FlagReference[] {
   const content = readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   const refs: FlagReference[] = [];
   lines.forEach((lineText, index) => {
-    FLAG_CALL_PATTERN.lastIndex = 0;
+    pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = FLAG_CALL_PATTERN.exec(lineText)) !== null) {
+    while ((match = pattern.exec(lineText)) !== null) {
       refs.push({ flag: match[1], file: filePath, line: index + 1 });
     }
   });
@@ -101,10 +147,15 @@ export function lint(options: LintOptions): Finding[] {
   const { manifest, raw } = loadManifest(options.manifestPath);
   const declared = new Map(manifest.flags.map((f) => [f.name, f]));
 
+  const configPath = options.configPath ?? DEFAULT_CONFIG_PATH;
+  const config = loadConfig(configPath, options.configPath === undefined);
+  const flagFunctions = [...DEFAULT_FLAG_FUNCTIONS, ...(config.flagFunctions ?? [])];
+  const pattern = buildFlagCallPattern(flagFunctions);
+
   const references: FlagReference[] = [];
   for (const target of options.targets) {
     for (const file of collectTargetFiles(target)) {
-      references.push(...scanFileForFlags(file));
+      references.push(...scanFileForFlags(file, pattern));
     }
   }
 
