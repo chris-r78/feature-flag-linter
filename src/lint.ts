@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
-import type { Finding, FlagDefinition, FlagReference, LinterConfig, LintOptions, Manifest } from './types.js';
+import type { Finding, FlagDefinition, FlagReference, DynamicFlagReference, LinterConfig, LintOptions, Manifest } from './types.js';
 
 const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage']);
@@ -12,9 +12,16 @@ const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 // Heuristic, not AST-based: catches the common flag-check call shapes without
 // needing a parser for every dialect of JS/TS a codebase might use.
+//
+// The first alternative matches a plain quoted flag name, same as a
+// hand-written string literal check. The second is a fallback that grabs
+// whatever sits in the first argument slot up to the next comma or closing
+// paren - a variable, a ternary, a template literal, anything that isn't a
+// bare string literal - so those calls get flagged as unverifiable instead
+// of never being noticed at all.
 function buildFlagCallPattern(functionNames: string[]): RegExp {
   const alternation = functionNames.join('|');
-  return new RegExp(`\\b(?:${alternation})\\s*\\(\\s*['"]([a-zA-Z0-9_.-]+)['"]`, 'g');
+  return new RegExp(`\\b(${alternation})\\s*\\(\\s*(?:(['"])([a-zA-Z0-9_.-]+)\\2|([^,)]+))`, 'g');
 }
 
 export function loadConfig(configPath: string, isDefaultPath: boolean): LinterConfig {
@@ -82,18 +89,27 @@ function collectTargetFiles(target: string): string[] {
   return [target];
 }
 
-function scanFileForFlags(filePath: string, pattern: RegExp): FlagReference[] {
+function scanFileForFlags(
+  filePath: string,
+  pattern: RegExp,
+): { refs: FlagReference[]; dynamicRefs: DynamicFlagReference[] } {
   const content = readFileSync(filePath, 'utf8');
   const lines = content.split('\n');
   const refs: FlagReference[] = [];
+  const dynamicRefs: DynamicFlagReference[] = [];
   lines.forEach((lineText, index) => {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(lineText)) !== null) {
-      refs.push({ flag: match[1], file: filePath, line: index + 1 });
+      const [, func, , staticName, dynamicArg] = match;
+      if (staticName !== undefined) {
+        refs.push({ flag: staticName, file: filePath, line: index + 1 });
+      } else {
+        dynamicRefs.push({ func, argText: dynamicArg.trim(), file: filePath, line: index + 1 });
+      }
     }
   });
-  return refs;
+  return { refs, dynamicRefs };
 }
 
 export function loadManifest(manifestPath: string): { manifest: Manifest; raw: string } {
@@ -153,9 +169,12 @@ export function lint(options: LintOptions): Finding[] {
   const pattern = buildFlagCallPattern(flagFunctions);
 
   const references: FlagReference[] = [];
+  const dynamicReferences: DynamicFlagReference[] = [];
   for (const target of options.targets) {
     for (const file of collectTargetFiles(target)) {
-      references.push(...scanFileForFlags(file, pattern));
+      const { refs, dynamicRefs } = scanFileForFlags(file, pattern);
+      references.push(...refs);
+      dynamicReferences.push(...dynamicRefs);
     }
   }
 
@@ -172,6 +191,16 @@ export function lint(options: LintOptions): Finding[] {
         line: ref.line,
       });
     }
+  }
+
+  for (const dynamicRef of dynamicReferences) {
+    findings.push({
+      severity: 'info',
+      rule: 'dynamic-flag',
+      message: `flag check ${dynamicRef.func}(${dynamicRef.argText}) uses a non-literal argument and can't be verified against the manifest`,
+      file: dynamicRef.file,
+      line: dynamicRef.line,
+    });
   }
 
   for (const flag of manifest.flags) {

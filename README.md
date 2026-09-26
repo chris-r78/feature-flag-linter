@@ -17,6 +17,9 @@ actually meant to have:
   anymore (a candidate for cleanup)
 - **expired-flag** - the manifest's `expires` date for a flag is in the past,
   but the flag is still checked in code
+- **dynamic-flag** - a flag-check call's first argument isn't a plain string
+  literal (a variable, a ternary, a template literal), so the linter can't
+  tell what flag it resolves to and can't check it against the manifest
 
 Findings are reported with the file and line number where the problem lives,
 either as plain text or as JSON for wiring into other tooling.
@@ -40,13 +43,15 @@ The manifest is a JSON file, `feature-flags.json` by default:
 
 The linter scans your source files for calls that look like flag checks -
 `isEnabled(...)`, `isFeatureEnabled(...)`, `useFeatureFlag(...)`,
-`useFlag(...)`, `flagEnabled(...)` - with a string literal as the flag name,
-and cross-references the names it finds against the manifest.
+`useFlag(...)`, `flagEnabled(...)` - and cross-references the names it finds
+against the manifest. When the first argument is a plain string literal it's
+checked directly; when it's anything else (a variable, a ternary, a template
+literal), the call is reported as a `dynamic-flag` finding instead of being
+silently skipped.
 
-This is a regex-based scan over source text, not a full parser. It will miss
-flag names built from variables or template strings, and it only recognizes
-the call names listed above by default. See the roadmap below for where this
-is headed.
+This is a regex-based scan over source text, not a full parser, and it only
+recognizes the call names listed above by default. See the roadmap below for
+where this is headed.
 
 ### Custom flag-check function names
 
@@ -84,10 +89,11 @@ Human-readable output:
 
 ```
 src/checkout/router.ts:42  error    undeclared-flag  flag "new-checkot-flow" is used in code but not declared in feature-flags.json
+src/checkout/router.ts:57  info     dynamic-flag     flag check useFlag(getFlagKey()) uses a non-literal argument and can't be verified against the manifest
 feature-flags.json:9       warning  unused-flag      flag "legacy-search" is declared but never referenced in the scanned code
 feature-flags.json:14      warning  expired-flag     flag "new-checkout-flow" expired on 2026-01-01 but is still referenced in code
 
-1 error(s), 2 warning(s)
+1 error(s), 2 warning(s), 1 info
 ```
 
 The same run with `--json`:
@@ -108,7 +114,8 @@ node dist/cli.js src/ --json
     }
   ],
   "errorCount": 1,
-  "warningCount": 2
+  "warningCount": 2,
+  "infoCount": 1
 }
 ```
 
@@ -130,8 +137,6 @@ standard library.
 
 ## Roadmap
 
-- Detect flags referenced with dynamic/computed names and report them as a
-  separate "cannot verify" category instead of silently skipping them
 - Add a `--fix` mode that removes manifest entries for confirmed unused flags
 - Publish as an npm package with a proper CLI entry point
 

@@ -15,7 +15,18 @@ export interface FlagReference {
   line: number;
 }
 
-export type Severity = 'error' | 'warning';
+// A flag-check call whose first argument isn't a plain quoted string, e.g.
+// `useFlag(getFlagName())` or `isEnabled(isDebug ? 'a' : 'b')`. We can't
+// resolve the flag name against the manifest, so these are tracked
+// separately instead of being silently dropped from the scan.
+export interface DynamicFlagReference {
+  func: string;
+  argText: string;
+  file: string;
+  line: number;
+}
+
+export type Severity = 'error' | 'warning' | 'info';
 
 export interface Finding {
   severity: Severity;

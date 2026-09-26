@@ -61,14 +61,16 @@ function printHuman(findings: Finding[]): void {
     console.log(`${f.file}:${f.line}  ${f.severity.padEnd(7)}  ${f.rule}  ${f.message}`);
   }
   const errorCount = findings.filter((f) => f.severity === 'error').length;
-  const warningCount = findings.length - errorCount;
-  console.log(`\n${errorCount} error(s), ${warningCount} warning(s)`);
+  const warningCount = findings.filter((f) => f.severity === 'warning').length;
+  const infoCount = findings.filter((f) => f.severity === 'info').length;
+  console.log(`\n${errorCount} error(s), ${warningCount} warning(s), ${infoCount} info`);
 }
 
 function printJson(findings: Finding[]): void {
   const errorCount = findings.filter((f) => f.severity === 'error').length;
-  const warningCount = findings.length - errorCount;
-  console.log(JSON.stringify({ findings, errorCount, warningCount }, null, 2));
+  const warningCount = findings.filter((f) => f.severity === 'warning').length;
+  const infoCount = findings.filter((f) => f.severity === 'info').length;
+  console.log(JSON.stringify({ findings, errorCount, warningCount, infoCount }, null, 2));
 }
 
 function main(): void {
