@@ -130,6 +130,22 @@ node dist/cli.js --config tools/flag-linter.json src/
 node dist/cli.js --help
 ```
 
+### Fixing unused flags
+
+`--fix` rewrites the manifest without the flags reported as `unused-flag`:
+
+```
+node dist/cli.js src/ --fix
+```
+
+It only removes a flag when the scan can vouch for it. If any `dynamic-flag`
+finding turned up, a computed name might be reaching any declared flag, so
+nothing is removed and the reason is printed to stderr. Also make sure you scan
+all the code that uses the manifest; a flag used only in a directory you left
+out looks unused. The file is re-serialized with its existing indentation, so
+custom formatting other than indentation is not preserved. Findings about the
+removed entries are dropped from the report and the exit code.
+
 ## Status
 
 This is a first pass. No third-party dependencies - it only uses Node's
@@ -137,7 +153,6 @@ standard library.
 
 ## Roadmap
 
-- Add a `--fix` mode that removes manifest entries for confirmed unused flags
 - Publish as an npm package with a proper CLI entry point
 
 Switching the scan to the TypeScript compiler API is off the table for now:

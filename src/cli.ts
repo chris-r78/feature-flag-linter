@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { lint } from './lint.js';
+import { findRemovableFlags, removeFlagsFromManifest } from './fix.js';
 import type { Finding } from './types.js';
 
-const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--config <file>] [--json]
+const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--config <file>] [--json] [--fix]
 
   paths          files or directories to scan (default: .)
   --manifest     path to the flags manifest (default: feature-flags.json)
@@ -10,6 +11,8 @@ const USAGE = `usage: feature-flag-linter [paths...] [--manifest <file>] [--conf
                  silently skipped if it doesn't exist; an explicitly passed path
                  must exist)
   --json         emit findings as JSON instead of human-readable text
+  --fix          remove unused flags from the manifest (skipped if the scan found
+                 any dynamic flag checks)
   --help         show this message
 `;
 
@@ -18,6 +21,7 @@ interface ParsedArgs {
   manifestPath: string;
   configPath?: string;
   jsonOutput: boolean;
+  fix: boolean;
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
@@ -25,11 +29,14 @@ function parseArgs(argv: string[]): ParsedArgs {
   let manifestPath = 'feature-flags.json';
   let configPath: string | undefined;
   let jsonOutput = false;
+  let fix = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') {
       jsonOutput = true;
+    } else if (arg === '--fix') {
+      fix = true;
     } else if (arg === '--manifest') {
       i += 1;
       const value = argv[i];
@@ -49,7 +56,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   if (targets.length === 0) targets.push('.');
-  return { targets, manifestPath, configPath, jsonOutput };
+  return { targets, manifestPath, configPath, jsonOutput, fix };
 }
 
 function printHuman(findings: Finding[]): void {
@@ -88,6 +95,23 @@ function main(): void {
   } catch (err) {
     process.stderr.write(`feature-flag-linter: ${(err as Error).message}\n`);
     process.exit(2);
+  }
+
+  if (args.fix) {
+    const { removed, skippedReason } = findRemovableFlags(findings);
+    try {
+      removeFlagsFromManifest(args.manifestPath, removed);
+    } catch (err) {
+      process.stderr.write(`feature-flag-linter: could not update ${args.manifestPath}: ${(err as Error).message}\n`);
+      process.exit(2);
+    }
+    if (skippedReason) process.stderr.write(`feature-flag-linter: --fix skipped: ${skippedReason}\n`);
+    if (removed.length > 0) {
+      process.stderr.write(`feature-flag-linter: removed ${removed.length} unused flag(s) from ${args.manifestPath}\n`);
+    }
+    // Report what's left, not findings about entries that no longer exist.
+    const gone = new Set(removed);
+    findings = findings.filter((f) => !(f.rule === 'unused-flag' && f.flag !== undefined && gone.has(f.flag)));
   }
 
   if (args.jsonOutput) {

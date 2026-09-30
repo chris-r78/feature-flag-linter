@@ -212,6 +212,7 @@ export function lint(options: LintOptions): Finding[] {
         message: `flag "${flag.name}" is declared but never referenced in the scanned code`,
         file: options.manifestPath,
         line,
+        flag: flag.name,
       });
     } else if (isExpired(flag.expires)) {
       findings.push({
@@ -220,6 +221,7 @@ export function lint(options: LintOptions): Finding[] {
         message: `flag "${flag.name}" expired on ${flag.expires} but is still referenced in code`,
         file: options.manifestPath,
         line,
+        flag: flag.name,
       });
     }
   }

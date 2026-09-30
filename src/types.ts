@@ -34,6 +34,8 @@ export interface Finding {
   message: string;
   file: string;
   line: number;
+  // The manifest flag name, set on findings about a declared flag.
+  flag?: string;
 }
 
 export interface LintOptions {
